@@ -1,0 +1,271 @@
+<script src="https://unpkg.com/dash"></script>
+<script src="https://unpkg.com/@dashevo/wallet-lib"></script>
+<script src="https://unpkg.com/localforage"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.2/axios.min.js"></script>
+<script src="buffer.js"></script>
+<script>
+    //const wallet = new Wallet({adapter: localforage});
+
+
+    var clientOpts = {
+        mnemonic: 'swap funny purpose quiz wise device notable address sibling snap install chuckle',
+    };
+    var client = null;
+
+    client = new Dash.Client(clientOpts);
+    const { identities, names } = client.platform;
+
+    const faucetURL = 'https://qetrgbsx30.execute-api.us-west-1.amazonaws.com/stage/?dashAddress='
+   
+    const insightURL = 'http://insight.evonet.networks.dash.org:3001/insight-api/addr/';
+
+
+    
+
+
+
+    /***
+     * CHANGE THE USERNAME HERE
+    */
+    const senderUsername = 'sender'; 
+    const recipientUsername = 'receiver';
+
+    (async () => {
+        client.isReady().then(async () => {
+
+            const senderAddress = await getUserAddress(senderUsername);
+            console.log('senderAddress:', senderAddress);
+
+            //getSendersPrivateKey
+            const senderIdentityPrivateKey = await client.account.getIdentityHDKey(0, 'user').privateKey;
+            console.log('senderIdentityPrivateKey:', senderIdentityPrivateKey)
+
+            const recipientAddress = await getUserAddress(recipientUsername);
+            console.log('recipientAddress:', recipientAddress);
+
+        
+            //fund the sender address from the faucet
+            console.log('get funds')
+            //fundAccountSuccess =  fundAccount(faucetURL, senderAddress, 50000);
+            //console.log('result', fundAccountSuccess)
+            //set a timeout whilst funds confirm
+            let wait = (ms) => new Promise((r, j) => setTimeout(r, ms));
+            await wait(4000);
+
+            //send  to recipient
+            const txId = await sendUsingWalletLib(senderIdentityPrivateKey, recipientAddress);
+
+            //recipient looks up names associated with the address
+             const matchingNames = await getSenderFromAddress(senderAddress)
+
+        })
+    }
+    )()
+
+
+    async function getUserAddress(username) {
+        try {
+            //get identity from DPNS contact
+            const identityId = (await names.get(username)).data.records
+                .dashIdentity;
+            console.log("identityid", identityId);
+            //get idenity
+            const identity = await identities.get(identityId);
+            //get address
+            const userAddress = new Dash.Core.Address(
+                //new Dash.Core.PublicKey(Buffer.from(identity.publicKeys[0].data, 'base64')),
+                new Dash.Core.PublicKey(Base64Binary.decode(identity.publicKeys[0].data)),
+                Dash.Core.Networks.testnet).toString();
+            return userAddress;
+
+        }
+        catch (e) {
+            console.log("getUserAddress error", e);
+        }
+    }
+
+
+
+    async function getAccount() {
+        try {
+
+            const BIP44Account = wallet.getAccount("m/9'/5'/5'");
+
+            const BIP44AccountAddress = BIP44Account.getAddress().address;
+
+            console.log('BIP44 Address', BIP44AccountAddress);
+
+        }
+        catch (e) {
+            console.log("getAccount error", e);
+        }
+
+
+    }
+
+
+
+    async function sendUsingWalletLib(senderPrivateKey, recipientAddress) {
+
+
+
+
+        const wallet = new Wallet({
+            network: 'testnet',
+            privateKey: senderPrivateKey
+        });
+
+
+
+
+        const BIP44Account = wallet.getAccount("m/9'/5'/5'");
+
+        const BIP44AccountAddress = BIP44Account.getAddress().address;
+
+        console.log('BIP44 Address', BIP44AccountAddress);
+
+        console.log('BIP44 Balance', BIP44Account.getTotalBalance());
+
+
+        const utxo = await getUTXO(insightURL, BIP44AccountAddress); //(wallet.getAccount().getAddress(0).address);
+
+
+        /*
+        alternative: create tx using DashCore Transaction directly
+        
+        const tx = new Dash.Core.Transaction()
+            .from(utxo)          // Feed information about what unspent outputs one can use
+            .to('yT94r3x4buMkBjkHVLPyoq2t6ZqcpiXWHx', 200000)  // Add an output with the given amount of satoshis
+            .change(changeAddress)      // Sets up a change address where the rest of the funds will go
+            .sign(userIdentityPrivateKey)     // Signs all the inputs it can
+        */
+
+
+        const sendOpts = {
+            recipient: recipientAddress,
+            satoshis: 50000,
+            utxos: utxo,
+            privateKeys: [senderPrivateKey]
+        };
+
+        const changeAddress = BIP44AccountAddress //return change to identity address
+        console.log('changeAddress', changeAddress)
+
+        const tx = BIP44Account.createTransaction(sendOpts);
+
+
+        console.log('tx:', tx);
+
+        const signedTx = BIP44Account.sign(tx, senderPrivateKey);
+        console.log('signedTx', signedTx);
+
+        //send TX
+        const txId = await BIP44Account.broadcastTransaction(tx);
+
+        console.log('txId:', txId);
+
+        return txId
+
+    }
+
+
+    async function fundAccount(faucetURL, address, amount) {
+
+        try {
+
+            const response = await axios.get(faucetURL+address);
+            return 0; //response code
+        }
+        catch (e) {
+            console.log(e);
+
+        }
+    }
+
+
+    async function getUTXO(insightURL, addr) {
+        try {
+           
+            console.log('insight URL:', insightURL+ addr + '/utxo')
+            const response = await axios.get(insightURL+ addr + '/utxo');
+            //console.log(response);
+            const utxo = response.data;
+            console.log('utxo:', utxo)
+            return utxo;
+
+
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    async function getSenderFromAddress(addressToSearch) {
+  const platform = client.platform;
+  await client.isReady();
+
+  let lastCount = 0;
+  while (true) {
+    let documents;
+    let usernames = [];
+    let startAt = lastCount;
+    do {
+      let retry = true;
+      do {
+        try {
+          documents = await platform.documents.get('dpns.domain', { startAt });
+          //console.dir(documents);
+          
+          retry = false;
+        } catch (e) {
+          console.error(e.metadata);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } while (retry);
+      usernames = usernames.concat(
+        documents.map(d => ({
+          label: d.data.normalizedLabel,
+          domain: d.data.normalizedParentDomainName,
+          id: d.ownerId
+        }))
+      );
+      startAt += 100;
+    } while (documents.length === 100);
+
+    if (lastCount === 0) {
+    
+
+      const addrArray = usernames.map(
+        async u => {
+         const identity = await platform.identities.get(u.id)
+         const address = new Dash.Core.PublicKey(Base64Binary.decode(identity.publicKeys[0].data)).toAddress(Dash.Core.Networks.testnet).toString();
+         
+         return {address: address, id: u.id, name: u.label};
+        });
+
+      const nameAddresses = await Promise.all(addrArray);
+      
+      
+      
+      
+      const matches = nameAddresses.filter(
+        a => a.address === addressToSearch
+      )
+      
+      console.log('found', matches.length, 'matching Addresses from total of ', usernames.length);
+      
+      console.dir(matches);
+
+      return matches;
+      
+
+    }
+    
+    lastCount += usernames.length;
+    if (usernames.length === 0) {return};
+
+  }
+  
+}
+
+
+</script>
