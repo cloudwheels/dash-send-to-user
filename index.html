@@ -1,53 +1,65 @@
-<script src="https://unpkg.com/dash"></script>
-<script src="https://unpkg.com/@dashevo/wallet-lib"></script>
-<script src="https://unpkg.com/localforage"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.2/axios.min.js"></script>
-<script src="buffer.js"></script>
-<script>
-    //const wallet = new Wallet({adapter: localforage});
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+
+<head>
+
+  <meta content="text/html; charset=utf-8" http-equiv="content-type">
+  <title>Send to Dash Username</title>
+
+  <script src="https://unpkg.com/dash"></script>
+  <script src="https://unpkg.com/@dashevo/wallet-lib"></script>
+  <script src="https://unpkg.com/localforage"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.2/axios.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.4.1.js"></script>
+  <link rel="stylesheet" type="text/css" href="./styles.css">
+  <script src="buffer.js"></script>
+  <script src="./main.js"></script>
+  <script>
+    $(document).ready(function () {
+
+      // ? use local storgae
+      // const wallet = new Wallet({adapter: localforage});
 
 
-    var clientOpts = {
-        mnemonic: 'swap funny purpose quiz wise device notable address sibling snap install chuckle',
-    };
-    var client = null;
+      $("#submit").click(async function () {
 
-    client = new Dash.Client(clientOpts);
-    const { identities, names } = client.platform;
+        try {
 
-    const faucetURL = 'https://qetrgbsx30.execute-api.us-west-1.amazonaws.com/stage/?dashAddress='
-   
-    const insightURL = 'http://insight.evonet.networks.dash.org:3001/insight-api/addr/';
+          $("#result").html("");
 
-
-    
+          var mnemonic, senderUsername, recipientUsername
+          if (!$("#mnemonic").val()) { mnemonic = $("#mnemonic").attr('placeholder') } else { mnemonic = $("#mnemonic").val() }
+          if (!$("#senderName").val()) { senderUsername = $("#senderName").attr('placeholder') } else { senderUsername = $("#senderName").val() }
+          if (!$("#recipientName").val()) { recipientUsername = $("#recipientName").attr('placeholder') } else { recipientUsername = $("#recipientName").val() }
 
 
 
-    /***
-     * CHANGE THE USERNAME HERE
-    */
-    const senderUsername = 'sender'; 
-    const recipientUsername = 'receiver';
+          
 
-    (async () => {
-        client.isReady().then(async () => {
+          // (async () => {
+          //client.isReady().then(async () => {
+            await connect(mnemonic);
 
+            $("#result").append(`Get address for sender ${senderUsername}<br/>`);
             const senderAddress = await getUserAddress(senderUsername);
-            console.log('senderAddress:', senderAddress);
+            $("#result").append('senderAddress:', "<a href='http://insight.evonet.networks.dash.org:3001/insight/address/"+ senderAddress +"'>"+senderAddress+"</a>", '<br/>')
 
-            //getSendersPrivateKey
-            const senderIdentityPrivateKey = await client.account.getIdentityHDKey(0, 'user').privateKey;
-            console.log('senderIdentityPrivateKey:', senderIdentityPrivateKey)
-
+            $("#result").append(`Get address for recipient ${recipientUsername}<br/>`);
             const recipientAddress = await getUserAddress(recipientUsername);
-            console.log('recipientAddress:', recipientAddress);
+            $("#result").append('recipientAddress:', "<a href='http://insight.evonet.networks.dash.org:3001/insight/address/"+ recipientAddress +"'>"+recipientAddress+"</a>", '<br/>');
 
-        
+            //getSendersPrivateKey     
+            const senderIdentityPrivateKey = await getPrivateKey(); 
+            console.log('senderIdentityPrivateKey: ', senderIdentityPrivateKey);
+            $("#result").append('senderIdentityPrivateKey:  (see console)<br/>')
+
+           
+
+
             //fund the sender address from the faucet
-            console.log('get funds')
-            //fundAccountSuccess =  fundAccount(faucetURL, senderAddress, 50000);
-            //console.log('result', fundAccountSuccess)
+            $("#result").append('funds senders tipping wallet', '<br/>')
+            fundAccountSuccess = await fundAccount(faucetURL, senderAddress, 50000);
+            $("#result").append('result', fundAccountSuccess, '<br/>')
             //set a timeout whilst funds confirm
             let wait = (ms) => new Promise((r, j) => setTimeout(r, ms));
             await wait(4000);
@@ -55,217 +67,118 @@
             //send  to recipient
             const txId = await sendUsingWalletLib(senderIdentityPrivateKey, recipientAddress);
 
+            $("#result").append('resolve sending address to name(s)', '<br/>')
             //recipient looks up names associated with the address
-             const matchingNames = await getSenderFromAddress(senderAddress)
+            const matchingNames = await getSenderFromAddress(senderAddress)
 
-        })
-    }
-    )()
+          //})
+          // })()
 
-
-    async function getUserAddress(username) {
-        try {
-            //get identity from DPNS contact
-            const identityId = (await names.get(username)).data.records
-                .dashIdentity;
-            console.log("identityid", identityId);
-            //get idenity
-            const identity = await identities.get(identityId);
-            //get address
-            const userAddress = new Dash.Core.Address(
-                //new Dash.Core.PublicKey(Buffer.from(identity.publicKeys[0].data, 'base64')),
-                new Dash.Core.PublicKey(Base64Binary.decode(identity.publicKeys[0].data)),
-                Dash.Core.Networks.testnet).toString();
-            return userAddress;
-
-        }
-        catch (e) {
-            console.log("getUserAddress error", e);
-        }
-    }
-
-
-
-    async function getAccount() {
-        try {
-
-            const BIP44Account = wallet.getAccount("m/9'/5'/5'");
-
-            const BIP44AccountAddress = BIP44Account.getAddress().address;
-
-            console.log('BIP44 Address', BIP44AccountAddress);
-
-        }
-        catch (e) {
-            console.log("getAccount error", e);
-        }
-
-
-    }
-
-
-
-    async function sendUsingWalletLib(senderPrivateKey, recipientAddress) {
-
-
-
-
-        const wallet = new Wallet({
-            network: 'testnet',
-            privateKey: senderPrivateKey
-        });
-
-
-
-
-        const BIP44Account = wallet.getAccount("m/9'/5'/5'");
-
-        const BIP44AccountAddress = BIP44Account.getAddress().address;
-
-        console.log('BIP44 Address', BIP44AccountAddress);
-
-        console.log('BIP44 Balance', BIP44Account.getTotalBalance());
-
-
-        const utxo = await getUTXO(insightURL, BIP44AccountAddress); //(wallet.getAccount().getAddress(0).address);
-
-
-        /*
-        alternative: create tx using DashCore Transaction directly
-        
-        const tx = new Dash.Core.Transaction()
-            .from(utxo)          // Feed information about what unspent outputs one can use
-            .to('yT94r3x4buMkBjkHVLPyoq2t6ZqcpiXWHx', 200000)  // Add an output with the given amount of satoshis
-            .change(changeAddress)      // Sets up a change address where the rest of the funds will go
-            .sign(userIdentityPrivateKey)     // Signs all the inputs it can
-        */
-
-
-        const sendOpts = {
-            recipient: recipientAddress,
-            satoshis: 50000,
-            utxos: utxo,
-            privateKeys: [senderPrivateKey]
-        };
-
-        const changeAddress = BIP44AccountAddress //return change to identity address
-        console.log('changeAddress', changeAddress)
-
-        const tx = BIP44Account.createTransaction(sendOpts);
-
-
-        console.log('tx:', tx);
-
-        const signedTx = BIP44Account.sign(tx, senderPrivateKey);
-        console.log('signedTx', signedTx);
-
-        //send TX
-        const txId = await BIP44Account.broadcastTransaction(tx);
-
-        console.log('txId:', txId);
-
-        return txId
-
-    }
-
-
-    async function fundAccount(faucetURL, address, amount) {
-
-        try {
-
-            const response = await axios.get(faucetURL+address);
-            return 0; //response code
-        }
-        catch (e) {
-            console.log(e);
-
-        }
-    }
-
-
-    async function getUTXO(insightURL, addr) {
-        try {
-           
-            console.log('insight URL:', insightURL+ addr + '/utxo')
-            const response = await axios.get(insightURL+ addr + '/utxo');
-            //console.log(response);
-            const utxo = response.data;
-            console.log('utxo:', utxo)
-            return utxo;
-
-
-        } catch (error) {
-            console.error(error);
-        }
-    }
-
-    async function getSenderFromAddress(addressToSearch) {
-  const platform = client.platform;
-  await client.isReady();
-
-  let lastCount = 0;
-  while (true) {
-    let documents;
-    let usernames = [];
-    let startAt = lastCount;
-    do {
-      let retry = true;
-      do {
-        try {
-          documents = await platform.documents.get('dpns.domain', { startAt });
-          //console.dir(documents);
-          
-          retry = false;
         } catch (e) {
-          console.error(e.metadata);
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          //$("#result").html("Error:<br/> " + e)
+          $("#result").append("<div>Error:<br/> " + JSON.stringify(e) +"</div>");
         }
-      } while (retry);
-      usernames = usernames.concat(
-        documents.map(d => ({
-          label: d.data.normalizedLabel,
-          domain: d.data.normalizedParentDomainName,
-          id: d.ownerId
-        }))
-      );
-      startAt += 100;
-    } while (documents.length === 100);
 
-    if (lastCount === 0) {
-    
+      });
 
-      const addrArray = usernames.map(
-        async u => {
-         const identity = await platform.identities.get(u.id)
-         const address = new Dash.Core.PublicKey(Base64Binary.decode(identity.publicKeys[0].data)).toAddress(Dash.Core.Networks.testnet).toString();
-         
-         return {address: address, id: u.id, name: u.label};
-        });
+    });
+  </script>
 
-      const nameAddresses = await Promise.all(addrArray);
-      
-      
-      
-      
-      const matches = nameAddresses.filter(
-        a => a.address === addressToSearch
-      )
-      
-      console.log('found', matches.length, 'matching Addresses from total of ', usernames.length);
-      
-      console.dir(matches);
+</head>
 
-      return matches;
-      
+<body>
+  <h1>Send Dash to Username</h1>
+  <div>
+    <p>
+      <a href="https://github.com/cloudwheels/dash-send-to-user">https://github.com/cloudwheels/dash-send-to-user</a>
+    </p>
+  </div>
+  <div>
+    <p>
+      An experiment in sending Dash evonet funds between public keyhash addresses associated with usernames.
+    </p>
+    <h2>Instructions for use</h2>
+    <p>
+      This is an experiment using the Dash Platform testnet (Evonet). This example contains potentially insecure
+      transactions. Do not use real credentials! Create test users for the example or use those provided as
+      placeholders.</p>
+    <p>
+    <ul>
+      <li>Enter the username of the sender and the mnemonic associated with their account.</li>
+      <li>Enter the username of the recipient.
+      <li>Click on "Pay User" to start the process</li>
+    </ul>
+    </p>
+    <h2>What's happening?</h2>
+    <p>
+    <ul>
+      <li>
+        <b>Get senders's "tipping address" from their username:</b> The identity assciated with the sender's username is
+        retrieved and a public
+        keyhash address is derived from the public key asscoiated with that identity.
+      </li>
+      <li>
+        <b>Get recipient's "tipping address" from their username:</b> As above.
+      </li>
+      <li>
+        <b>Fund the sender's tipping address:</b> A small amount of eDash is claimed from the automated faucet.
+      </li>
+      <li>
+        <b>Access sender's account:</b> Obtain private key from the sender's mnemonic and retrieve the 'tipping' account
+        in a wallet.
+      </li>
+      <li>
+        <b>Get UTXOs for sender's address:</b> UTXOs are retrieved from insight (calling getBalance on the account using
+        wallet-lib does not return a balance)
+      </li>
+      <li>
+        <b>Create transaction to pay recpient:</b> Use the sender's availbale UTXOs to send to the recipient's "tipping
+        address" (change is simply returned to the sender's tipping address)
+      </li>
+      <li>
+        <b>[Check recipient's address for balance:</b> Currently skipped for simplicity - we know from the faucet tx
+        that it is possible to receive funds to a tipping address]
+      </li>
+      <li>
+        <b>Resolve address to username(s):</b> The DPNS contract is queried by mapping name owner idenityIds to public
+        key hashes, to find a match for the sender's address. <b>Note - this may match an array of users as multiple
+          names can be registered per identity.</b>
+      </li>
 
-    }
-    
-    lastCount += usernames.length;
-    if (usernames.length === 0) {return};
+    </ul>
+    </p>
+    <p>
+      Please monitor the console for errors and try again if it doesn't
+      work! Only smoke-tested in Chrome Browser
+    </p>
+  </div>
 
-  }
-  
-}
+  <div>
+    <form>
+      <div>
+        <label for="senderName">Sender's Username</label><br /><input type="text" id="senderName" placeholder="sender" />
+        <br />
+        <label for="mnemonic">Sender's Mnemonic</label><br />
+        <textarea style="height:100px;width:150px"
+          placeholder="swap funny purpose quiz wise device notable address sibling snap install chuckle"
+          id="mnemonic"></textarea>
+        <br />
+        <label for="recipientName">Recipient's Username</label><br /> <input type="text" id="recipientName"
+          placeholder="receiver" />
+        <br />
+        <input type="button" value="PAY USER" id="submit" />
 
+      </div>
+    </form>
+  </div>
 
-</script>
+  <h2>Results:</h2>
+  <div id="result">
+
+  </div>
+  <br /><br />
+  <hr />
+
+</body>
+
+</html>
